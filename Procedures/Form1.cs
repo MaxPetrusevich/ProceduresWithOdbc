@@ -43,8 +43,8 @@ namespace Procedures
                 {
                     connection.Open();
 
-                
-                    string query = "SELECT * FROM dbo.Books"; 
+
+                    string query = "SELECT * FROM dbo.Book";
 
                     using (OdbcCommand command = new OdbcCommand(query, connection))
                     {
@@ -80,7 +80,6 @@ namespace Procedures
             MessageBox.Show(exception.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-   
 
         private void createInsertProcedure()
         {
@@ -98,7 +97,7 @@ namespace Procedures
                             @BookID int, @BookName varchar(25), @Author varchar(25), @Year int
                         AS
                         BEGIN
-                            INSERT INTO DBO.BOOKS (book_id, book_name, author, year) values (@BookID, @BookName, @Author, @Year)
+                            INSERT INTO DBO.BOOK (book_id, book_name, author, year) values (@BookID, @BookName, @Author, @Year)
                         END;";
 
                         using (OdbcCommand command = new OdbcCommand(createProcedureQuery, connection))
@@ -130,7 +129,7 @@ namespace Procedures
                             @BookID int
                         AS
                         BEGIN
-                            DELETE FROM BOOKS where book_id = @BookID
+                            DELETE FROM BOOK where book_id = @BookID
                         END;";
 
                         using (OdbcCommand command = new OdbcCommand(createProcedureQuery, connection))
@@ -157,7 +156,7 @@ namespace Procedures
                     string author = inputForm.Author;
                     int year = inputForm.Year;
 
-                    string connectionString = 
+                    string connectionString =
                         "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
 
                     using (OdbcConnection connection = new OdbcConnection(connectionString))
@@ -165,30 +164,39 @@ namespace Procedures
                         try
                         {
                             connection.Open();
-
-                            if (!ProcedureExists("InsertBooks", connection))
+                            if (DeleteForm.BookExists(bookId))
                             {
-                                MessageBox.Show("Stored procedure InsertBooks doesn't exist.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                return;
+                                showException(new Exception($"Book with id={bookId} already exists"));
                             }
-
-                            string query = "EXEC InsertBooks ?, ?, ?, ?";
-
-                            using (OdbcCommand command = new OdbcCommand(query, connection))
+                            else
                             {
-                                command.Parameters.AddWithValue("@p1", bookId);
-                                command.Parameters.AddWithValue("@p2", bookName);
-                                command.Parameters.AddWithValue("@p3", author);
-                                command.Parameters.AddWithValue("@p4", year);
+                                if (!ProcedureExists("InsertBooks", connection))
+                                {
+                                    MessageBox.Show("Stored procedure InsertBooks doesn't exist.", "Error",
+                                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                    return;
+                                }
 
-                                command.ExecuteNonQuery();
+                                string query = "EXEC InsertBooks ?, ?, ?, ?";
 
-                                MessageBox.Show("Data submitted successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                using (OdbcCommand command = new OdbcCommand(query, connection))
+                                {
+                                    command.Parameters.AddWithValue("@p1", bookId);
+                                    command.Parameters.AddWithValue("@p2", bookName);
+                                    command.Parameters.AddWithValue("@p3", author);
+                                    command.Parameters.AddWithValue("@p4", year);
+
+                                    command.ExecuteNonQuery();
+
+                                    MessageBox.Show("Data submitted successfully.", "Success", MessageBoxButtons.OK,
+                                        MessageBoxIcon.Information);
+                                }
                             }
                         }
                         catch (Exception ex)
                         {
-                            MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
                         }
                     }
                 }

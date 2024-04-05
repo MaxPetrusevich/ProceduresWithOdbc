@@ -45,7 +45,7 @@ namespace Procedures
             }
         }
 
-        private bool BookExists(int bookId)
+        public static bool BookExists(int bookId)
         {
             string connectionString =
                 "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
@@ -55,7 +55,7 @@ namespace Procedures
             {
                 connection.Open();
 
-                string query = "SELECT COUNT(*) FROM Books WHERE book_id = ?";
+                string query = "SELECT COUNT(*) FROM Book WHERE book_id = ?";
                 using (OdbcCommand command = new OdbcCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@BookID", bookId);
