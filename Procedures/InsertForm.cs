@@ -11,15 +11,13 @@ namespace Procedures
     {
         private OdbcConnection connection;
         private List<ColumnInfo> columns;
-
+        private Dictionary<string, List<object>> secondaryKeyValues; 
         public InsertForm(OdbcConnection conn)
         {
             InitializeComponent();
             connection = conn;
-            // Добавим обработчик события для кнопки "Добавить"
             buttonInsert.Click += ButtonInsert_Click;
 
-            // Загрузим список таблиц при загрузке формы
             LoadTableNames();
             comboBoxTables.SelectedItem = Form1.selectedTableName;
             if (!string.IsNullOrEmpty(Form1.selectedTableName))
@@ -30,14 +28,12 @@ namespace Procedures
 
         private void ButtonInsert_Click(object sender, EventArgs e)
         {
-            // Проверим, все ли поля заполнены
             if (string.IsNullOrEmpty(comboBoxTables.SelectedItem?.ToString()))
             {
                 MessageBox.Show("Пожалуйста, выберите таблицу.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            // Вызовем процедуру вставки с введенными данными
             try
             {
                 string selectedTableName = comboBoxTables.SelectedItem.ToString();
@@ -89,6 +85,7 @@ namespace Procedures
             columns = new List<ColumnInfo>();
             string connectionString =
                 "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
+
             using (OdbcConnection connection = new OdbcConnection(connectionString))
             {
                 try
@@ -120,84 +117,282 @@ namespace Procedures
                 }
             }
 
-            // Очистим панель от предыдущих элементов
             panelInput.Controls.Clear();
 
-            // Создадим текстовые поля для каждого столбца таблицы
             foreach (var column in columns)
             {
-                TextBox textBox = new TextBox();
-                textBox.Name = "textBox" + column.Name;
-                textBox.Text = "";
-                textBox.Width = 150;
-                Label label = new Label();
-                label.Text = column.Name + ":";
-                label.Width = 150;
+                if (IsPrimaryKey(tableName, column.Name))
+                {
+                    continue;
+                }
 
-                panelInput.Controls.Add(label);
-                panelInput.Controls.Add(textBox);
+                if (IsForeignKey(tableName, column.Name))
+                {
+                    ComboBox comboBox = new ComboBox();
+                    comboBox.Name = "comboBox" + column.Name;
+                    comboBox.Width = 150;
+                    comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+                    LoadForeignKeyValues(tableName, column.Name, comboBox);
+                    Label label = new Label();
+                    label.Text = column.Name + ":";
+                    label.Width = 150;
+
+                    panelInput.Controls.Add(label);
+                    panelInput.Controls.Add(comboBox);
+                }
+                else
+                {
+                    TextBox textBox = new TextBox();
+                    textBox.Name = "textBox" + column.Name;
+                    textBox.Text = "";
+                    textBox.Width = 150;
+                    Label label = new Label();
+                    label.Text = column.Name + ":";
+                    label.Width = 150;
+
+                    panelInput.Controls.Add(label);
+                    panelInput.Controls.Add(textBox);
+                }
             }
         }
 
-        private void InsertRecord(string tableName)
+        private bool IsPrimaryKey(string tableName, string columnName)
         {
             string connectionString =
                 "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
+            string query = $@"
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_NAME = '{tableName}' AND COLUMN_NAME = '{columnName}' AND CONSTRAINT_NAME = 'PK_{tableName}'";
 
             using (OdbcConnection connection = new OdbcConnection(connectionString))
             {
                 connection.Open();
-
-                // Получаем информацию о столбцах таблицы
-                List<ColumnInfo> columns = new List<ColumnInfo>();
-                using (OdbcCommand cmd = new OdbcCommand(
-                           $@"SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{tableName}'",
-                           connection))
-                {
-                    using (OdbcDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            string columnName = reader.GetString(0);
-                            string dataType = reader.GetString(1);
-                            columns.Add(new ColumnInfo(columnName, dataType));
-                        }
-                    }
-                }
-
-                // Составляем запрос на основе столбцов таблицы
-                string parameterNames = string.Join(", ", columns.Select(col => $"@{col.Name}").ToArray());
-                string parameterValues = string.Join(", ", columns.Select(col => "?").ToArray());
-
-                // Составляем запрос для вызова процедуры вставки
-                string query = $"EXEC Insert{tableName} {parameterValues}";
-
                 using (OdbcCommand command = new OdbcCommand(query, connection))
                 {
-                    foreach (var column in columns)
-                    {
-                        // Получаем соответствующий тип данных ODBC
-                        OdbcType odbcType = GetOdbcType(column.DataType);
-
-                        // Добавляем параметры к команде
-                        command.Parameters.Add("@" + column.Name, odbcType);
-                    }
-
-                    // Заполняем значения параметров из контролов формы
-                    foreach (Control control in panelInput.Controls)
-                    {
-                        if (control is TextBox textBox && textBox.Name.StartsWith("textBox"))
-                        {
-                            string columnName = textBox.Name.Substring("textBox".Length);
-                            var parameter = command.Parameters["@" + columnName];
-                            parameter.Value = textBox.Text;
-                        }
-                    }
-
-                    command.ExecuteNonQuery();
+                    int count = (int)command.ExecuteScalar();
+                    return count > 0;
                 }
             }
         }
+
+        private bool IsForeignKey(string tableName, string columnName)
+        {
+            string connectionString =
+                "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
+            string query = $@"
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_NAME = '{tableName}' AND COLUMN_NAME = '{columnName}' AND CONSTRAINT_NAME <> 'PK_{tableName}'";
+
+            using (OdbcConnection connection = new OdbcConnection(connectionString))
+            {
+                connection.Open();
+                using (OdbcCommand command = new OdbcCommand(query, connection))
+                {
+                    int count = (int)command.ExecuteScalar();
+                    return count > 0;
+                }
+            }
+        }
+
+private void LoadForeignKeyValues(string tableName, string columnName, ComboBox comboBox)
+{
+    string connectionString = "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
+
+    using (OdbcConnection connection = new OdbcConnection(connectionString))
+    {
+        connection.Open();
+
+        string foreignKeyTable = "";
+        string primaryKeyColumn = "";
+        string foreignKeyColumn = columnName;
+
+        using (OdbcCommand fkCmd = new OdbcCommand(
+                   $@"SELECT 
+            OBJECT_NAME(fkc.parent_object_id) AS [Foreign Table],
+            COL_NAME(fkc.parent_object_id, fkc.parent_column_id) AS [Foreign Column],
+            OBJECT_NAME(fkc.referenced_object_id) AS [Primary Table],
+            COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) AS [Primary Column]
+       FROM 
+            sys.foreign_key_columns AS fkc
+       INNER JOIN 
+            sys.tables AS tb1
+       ON 
+            fkc.parent_object_id = tb1.object_id
+       INNER JOIN 
+            sys.tables AS tb2
+       ON 
+            fkc.referenced_object_id = tb2.object_id
+       WHERE 
+            tb1.name = '{tableName}' AND 
+            COL_NAME(fkc.parent_object_id, fkc.parent_column_id) = '{columnName}'", connection))
+        {
+            using (OdbcDataReader fkReader = fkCmd.ExecuteReader())
+            {
+                if (fkReader.Read())
+                {
+                    foreignKeyTable = fkReader.GetString(2); 
+                    foreignKeyColumn = fkReader.GetString(3);
+                    primaryKeyColumn = fkReader.GetString(1);
+                }
+            }
+        }
+
+        Console.WriteLine($"Foreign key table: {foreignKeyTable}, foreign key column: {foreignKeyColumn}, primary key column: {primaryKeyColumn}");
+
+        if (string.IsNullOrEmpty(foreignKeyTable) || string.IsNullOrEmpty(foreignKeyColumn) || string.IsNullOrEmpty(primaryKeyColumn))
+        {
+            Console.WriteLine("Foreign key not found.");
+            return;
+        }
+
+        string query = $@"SELECT DISTINCT {foreignKeyColumn} FROM {foreignKeyTable}";
+        using (OdbcCommand command = new OdbcCommand(query, connection))
+        {
+            using (OdbcDataReader reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    comboBox.Items.Add(reader.GetString(0));
+                }
+            }
+        }
+    }
+}
+
+
+
+
+private void ValidateInputFields()
+{
+    foreach (Control control in panelInput.Controls)
+    {
+        if (control is TextBox textBox && textBox.Name.StartsWith("textBox"))
+        {
+            string columnName = textBox.Name.Substring("textBox".Length);
+            var column = columns.FirstOrDefault(c => c.Name == columnName);
+            if (column != null)
+            {
+                string dataType = column.DataType.ToLower();
+                if (dataType == "int")
+                {
+                    int value;
+                    if (!int.TryParse(textBox.Text, out value))
+                    {
+                        MessageBox.Show($"Поле '{columnName}' должно быть целым числом.", "Ошибка ввода",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+                else if (dataType == "datetime")
+                {
+                    DateTime value;
+                    if (!DateTime.TryParse(textBox.Text, out value))
+                    {
+                        MessageBox.Show($"Поле '{columnName}' должно быть датой.", "Ошибка ввода",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+            }
+        }
+
+    else if (control is ComboBox comboBox && comboBox.Name.StartsWith("textBox"))
+
+        {
+            string columnName = comboBox.Name.Substring("textBox".Length);
+            var column = columns.FirstOrDefault(c => c.Name == columnName);
+            if (column != null)
+            {
+                string dataType = column.DataType.ToLower();
+                if (dataType == "int")
+                {
+                    int value;
+                    if (!int.TryParse(comboBox.SelectedItem.ToString(), out value))
+                    {
+                        MessageBox.Show($"Поле '{columnName}' должно быть целым числом.", "Ошибка ввода",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+                else if (dataType == "datetime")
+                {
+                    DateTime value;
+                    if (!DateTime.TryParse(comboBox.Text, out value))
+                    {
+                        MessageBox.Show($"Поле '{columnName}' должно быть датой.", "Ошибка ввода",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+
+            }
+        }
+    }
+}
+
+private void InsertRecord(string tableName)
+{
+    ValidateInputFields();
+    string connectionString = "Driver={SQL Server};Server=MAKSIM\\MS2012SERVER;Database=Books;Uid=test;Pwd=123456789lab;";
+
+    using (OdbcConnection connection = new OdbcConnection(connectionString))
+    {
+        connection.Open();
+
+        List<ColumnInfo> columns = new List<ColumnInfo>();
+        using (OdbcCommand cmd = new OdbcCommand(
+                   $@"SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{tableName}' AND COLUMN_NAME NOT IN 
+(SELECT cu.COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE cu JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON cu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+ WHERE tc.TABLE_NAME = '{tableName}' AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY')",
+                   connection))
+        {
+            using (OdbcDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    string columnName = reader.GetString(0);
+                    string dataType = reader.GetString(1);
+                    columns.Add(new ColumnInfo(columnName, dataType));
+                }
+            }
+        }
+
+        string parameterPlaceholders = string.Join(", ", Enumerable.Repeat("?", columns.Count).ToArray());
+
+        string query = $"EXEC Insert{tableName} {parameterPlaceholders}";
+
+        using (OdbcCommand command = new OdbcCommand(query, connection))
+        {
+            foreach (var column in columns)
+            {
+                OdbcType odbcType = GetOdbcType(column.DataType);
+
+                command.Parameters.Add(column.Name, odbcType);
+            }
+
+            foreach (Control control in panelInput.Controls)
+            {
+                if (control is TextBox textBox && textBox.Name.StartsWith("textBox"))
+                {
+                    string columnName = textBox.Name.Substring("textBox".Length);
+                    var parameter = command.Parameters[columnName];
+                    parameter.Value = textBox.Text;
+                }
+                else if (control is ComboBox comboBox && comboBox.Name.StartsWith("comboBox"))
+                {
+                    string columnName = comboBox.Name.Substring("comboBox".Length);
+                    var parameter = command.Parameters[columnName];
+                    parameter.Value = comboBox.SelectedItem;
+                }
+            }
+
+            command.ExecuteNonQuery();
+        }
+    }
+}
+
 
 
         private void showException(Exception exception)
@@ -208,8 +403,6 @@ namespace Procedures
 
         private OdbcType GetOdbcType(string dataType)
         {
-            // Пример простой логики для преобразования строкового представления типа данных в OdbcType
-            // Вам может потребоваться расширить этот метод для поддержки всех возможных типов данных вашей базы данных
 
             switch (dataType.ToLower())
             {
@@ -220,9 +413,7 @@ namespace Procedures
                     return OdbcType.Text;
                 case "datetime":
                     return OdbcType.DateTime;
-                // Добавьте обработку других типов данных по мере необходимости
                 default:
-                    // Если тип данных не распознан, возвращаем просто строку
                     return OdbcType.Text;
             }
         }
@@ -230,7 +421,6 @@ namespace Procedures
 
         private void comboBoxTables_SelectedIndexChanged(object sender, EventArgs e)
         {
-            // При выборе таблицы загружаем её столбцы и создаем текстовые поля для ввода
             string selectedTableName = comboBoxTables.SelectedItem.ToString();
             LoadTableColumns(selectedTableName);
         }
